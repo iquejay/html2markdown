@@ -1,5 +1,5 @@
-
 // @ts-nocheck
+import { isElementInTable } from './utils'
 
 function extend (destination) {
   for (var i = 1; i < arguments.length; i++) {
@@ -51,7 +51,15 @@ var rules = {};
 rules.paragraph = {
   filter: 'p',
 
-  replacement: function (content) {
+  replacement: function (content, node) {
+    if (isElementInTable(node)) {
+      let suffix = ''
+      if (node.nextElementSibling) {
+        suffix = '<br />'
+      }
+      // 表格内换行
+      return content + suffix
+    }
     return '\n\n' + content + '\n\n'
   }
 };
@@ -60,6 +68,9 @@ rules.lineBreak = {
   filter: 'br',
 
   replacement: function (content, node, options) {
+    const parentHasTable = isElementInTable(node)
+    // 表格内原样保留
+    if (parentHasTable) return '<br />'
     return options.br + '\n'
   }
 };
@@ -69,12 +80,18 @@ rules.heading = {
 
   replacement: function (content, node, options) {
     var hLevel = Number(node.nodeName.charAt(1));
-
     if (options.headingStyle === 'setext' && hLevel < 3) {
       var underline = repeat((hLevel === 1 ? '=' : '-'), content.length);
       return (
         '\n\n' + content + '\n' + underline + '\n\n'
       )
+    } else if (isElementInTable(node)) {
+      let suffix = ''
+      if (node.nextElementSibling) {
+        suffix = '<br />'
+      }
+      // 表格中忽略h标签
+      return content + suffix
     } else {
       return '\n\n' + repeat('#', hLevel) + ' ' + content + '\n\n'
     }
@@ -147,17 +164,51 @@ rules.indentedCodeBlock = {
   }
 };
 
+const checkIsWikiCode = (node) => {
+  return node.getAttribute('data-macro-name') === 'code'
+    || node.getAttribute('class')?.includes('syntaxhighlighter')
+    // 只有一行一列的表格处理为codeBlock
+    || (node.getAttribute('class')?.includes('table-wrap') && (node.querySelectorAll('tbody tr td').length === 1))
+}
 rules.fencedCodeBlock = {
   filter: function (node, options) {
-    return (
-      options.codeBlockStyle === 'fenced' &&
-      node.nodeName === 'PRE' &&
+    if (options.codeBlockStyle !== 'fenced') return false
+    const isWikiCode = checkIsWikiCode(node)
+    if (isWikiCode) return true
+    return node.nodeName === 'PRE' &&
       node.firstChild &&
       node.firstChild.nodeName === 'CODE'
-    )
   },
 
   replacement: function (content, node, options) {
+    const isWikiCode = checkIsWikiCode(node)
+    if (isWikiCode) {
+      const language = node.querySelector('.syntaxhighlighter')?.getAttribute('class')
+        .replace('syntaxhighlighter sh-confluence nogutter', '').trim() || ''
+      const container = node.querySelector('td .container');
+      let childNodes
+      if (!container && node.querySelector('td.confluenceTd')) {
+        childNodes = node.querySelectorAll('td.confluenceTd p') || []
+      } else {
+        childNodes = container?.childNodes || []
+      }
+      const content = Array.from(childNodes).map((node) => {
+        if (node.tagName === 'P') {
+          return Array.from(node.childNodes || []).map(node => {
+            if (node.tagName === 'BR') {
+              return '\n'
+            }
+            return node.innerText || node.textContent
+          }).join('')
+        }
+        return node.innerText || node.textContent
+      }).join('\n')
+      return (
+        '\n\n' + options.fence + language + '\n' +
+        content +
+        '\n' + options.fence + '\n\n'
+      );
+    }
     var className = node.firstChild.getAttribute('class') || '';
     var language = (className.match(/language-(\S+)/) || [null, ''])[1];
 
@@ -186,8 +237,11 @@ rules.inlineLink = {
     )
   },
 
-  replacement: function (content, node) {
+  replacement: function (content, node, options) {
     var href = node.getAttribute('href');
+    if (options.getLinkHref) {
+      href = options.getLinkHref(href)
+    }
     var title = node.getAttribute('title') ? ' "' + node.getAttribute('title') + '"' : '';
     return '[' + content + '](' + href + title + ')'
   }
@@ -204,6 +258,9 @@ rules.referenceLink = {
 
   replacement: function (content, node, options) {
     var href = node.getAttribute('href');
+    if (options.getLinkHref) {
+      href = options.getLinkHref(href)
+    }
     var title = node.title ? ' "' + node.title + '"' : '';
     var replacement;
     var reference;
@@ -244,7 +301,7 @@ rules.emphasis = {
 
   replacement: function (content, node, options) {
     if (!content.trim()) return ''
-    return options.emDelimiter + content + options.emDelimiter
+    return options.emDelimiter + content.trim() + options.emDelimiter
   }
 };
 
@@ -253,7 +310,7 @@ rules.strong = {
 
   replacement: function (content, node, options) {
     if (!content.trim()) return ''
-    return options.strongDelimiter + content + options.strongDelimiter
+    return options.strongDelimiter + content.trim() + options.strongDelimiter
   }
 };
 
@@ -285,11 +342,19 @@ rules.code = {
 rules.image = {
   filter: 'img',
 
-  replacement: function (content, node) {
+  replacement: function (content, node, options) {
     var alt = node.getAttribute('alt') || '';
-    var src = node.getAttribute('src') || '';
+    var src: string = node.getAttribute('src') || '';
     var title = node.getAttribute('title') || '';
     var titlePart = title ? ' "' + title + '"' : '';
+    // 图片转换
+    if (options.getImgSrc) {
+      let url = src
+      if (typeof options.getImgSrc === 'function') {
+        url = options.getImgSrc(src)
+      }
+      src = url
+    }
     return src ? '![' + alt + ']' + '(' + src + titlePart + ')' : ''
   }
 };
@@ -619,7 +684,7 @@ var escapes = [
   [/\]/g, '\\]'],
   [/^>/g, '\\>'],
   [/_/g, '\\_'],
-  [/^(\d+)\. /g, '$1\\. ']
+  // [/^(\d+)\. /g, '$1\\. ']
 ];
 
 function TurndownService (options) {

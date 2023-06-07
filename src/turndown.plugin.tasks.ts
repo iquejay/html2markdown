@@ -1,13 +1,12 @@
+import type { TurndownService } from "./types"
 
-// @ts-nocheck
-
-export default function taskListItems (turndownService) {
+export default function taskListItems (turndownService: TurndownService) {
   turndownService.addRule('taskListItems', {
     filter: function (node) {
-      return node.type === 'checkbox' && node.parentNode.nodeName === 'LI'
+      return (node as HTMLInputElement).type === 'checkbox' && node.parentNode?.nodeName === 'LI'
     },
-    replacement: function (content, node) {
-      return (node.checked ? '[x]' : '[ ]') + ' '
+    replacement: function (_, node) {
+      return ((node as HTMLInputElement).checked ? '[x]' : '[ ]') + ' '
     }
   })
 }

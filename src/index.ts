@@ -5,14 +5,14 @@ import Mime from './mime';
 import turndown from './turndown';
 import turndownPluginTables from './turndown.plugin.tables';
 import turndownPluginTasks from './turndown.plugin.tasks';
-import {isElement} from './utils';
-import type {Options, TurndownOptions, TurndownService} from './types.js';
+import { isElement, isElementInTable } from './utils';
+import type { Options, TurndownService } from './types';
 
 /* MAIN */
 
 // Custom elements are transformed into regular non-empty "<div>" elements, otherwise they will be ignored
 
-const html2markdown = ( html: string, options?: TurndownOptions ): string => {
+const html2markdown = ( html: string, options?: Options ): string => {
 
   /* REGEX - BEFORE */
 
@@ -32,7 +32,17 @@ const html2markdown = ( html: string, options?: TurndownOptions ): string => {
 
   /* TURNDOWN */
 
-  const service: TurndownService = turndown ( options );
+  const service: TurndownService = turndown({
+    defaultReplacement(content: string, node: HTMLElement) {
+      const isElInTable = isElementInTable(node)
+      const nextSibling = node.nextElementSibling
+      if (isElInTable) {
+        return content + (nextSibling ? '<br />' : '')
+      }
+      return (node as any).isBlock ? ('\n\n' + content + '\n\n') : content
+    },
+    ...options
+  });
 
   service.use ( turndownPluginTables );
   service.use ( turndownPluginTasks );
@@ -103,7 +113,7 @@ const html2markdown = ( html: string, options?: TurndownOptions ): string => {
   });
 
   service.addRule ( 'mixed', {
-    filter: ['font', 'span'],
+    filter: ['font' as keyof HTMLElementTagNameMap, 'span'],
     replacement: ( str, element ) => {
       if ( !isElement ( element ) ) return str;
       if ( !str.trim () ) return '';
@@ -155,7 +165,8 @@ const html2markdown = ( html: string, options?: TurndownOptions ): string => {
         newStyle += `color: ${colorAttr};`
       }
       if ( style ) {
-        const colorStyle = style.match ( /[^-]color: ([^;]+);/ );
+        // 增加 ? ，color前可为空
+        const colorStyle = style.match ( /[^-]?color: ([^;]+);?/ );
         if ( colorStyle && colorStyle[1] !== '#010101' ) {
           newStyle += `color: ${colorStyle[1]};`;
         }
@@ -194,4 +205,4 @@ const html2markdown = ( html: string, options?: TurndownOptions ): string => {
 /* EXPORT */
 
 export default html2markdown;
-export type {Options};
+export type { Options };

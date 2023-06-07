@@ -1,29 +1,29 @@
+import type { Rule, TurndownService } from './types'
 
-// @ts-nocheck
+const indexOf = Array.prototype.indexOf
+const every = Array.prototype.every
+const rules: Record<string, Rule> = {}
 
-var indexOf = Array.prototype.indexOf
-var every = Array.prototype.every
-var rules = {}
-
-rules.tableCell = {
+rules["tableCell"] = {
   filter: ['th', 'td'],
   replacement: function (content, node) {
     return cell(content, node)
   }
 }
 
-rules.tableRow = {
+rules["tableRow"] = {
   filter: 'tr',
   replacement: function (content, node) {
-    var borderCells = ''
-    var alignMap = { left: ':--', right: '--:', center: ':-:' }
+    let borderCells = ''
+    const alignMap = { left: ':--', right: '--:', center: ':-:' }
 
-    if (isHeadingRow(node)) {
-      for (var i = 0; i < node.childNodes.length; i++) {
-        var border = '---'
-        var align = (
-          node.childNodes[i].getAttribute('align') || ''
-        ).toLowerCase()
+    if (isHeadingRow(node as HTMLTableRowElement)) {
+      for (let i = 0; i < node.childNodes.length; i++) {
+        let border = '---'
+        const childNode = node.childNodes[i] as HTMLElement
+        const align = (
+          childNode.getAttribute('align') || ''
+        ).toLowerCase() as keyof typeof alignMap
 
         if (align) border = alignMap[align] || border
 
@@ -34,21 +34,23 @@ rules.tableRow = {
   }
 }
 
-rules.table = {
+rules["table"] = {
   // Only convert tables with a heading row.
   // Tables with no heading row are kept using `keep` (see below).
   filter: function (node) {
-    return node.nodeName === 'TABLE' && isHeadingRow(node.rows[0])
+    return node.nodeName === 'TABLE' && isHeadingRow((node as HTMLTableElement).rows[0])
   },
 
-  replacement: function (content) {
+  replacement: function (content, node) {
     // Ensure there are no blank lines
-    content = content.replace('\n\n', '\n')
+    const colLen = (node as HTMLTableElement).rows[0].querySelectorAll('td').length
+    const emptyCol = Array.from({ length: colLen }).map(() => '|').join('')
+    content = content.replace(/\n\n/g, `\n${emptyCol}|\n`)
     return '\n\n' + content + '\n\n'
   }
 }
 
-rules.tableSection = {
+rules["tableSection"] = {
   filter: ['thead', 'tbody', 'tfoot'],
   replacement: function (content) {
     return content
@@ -60,12 +62,12 @@ rules.tableSection = {
 // - or if its the first child of the TABLE or the first TBODY (possibly
 //   following a blank THEAD)
 // - and every cell is a TH
-function isHeadingRow (tr) {
-  var parentNode = tr.parentNode
+function isHeadingRow (tr: HTMLTableRowElement) {
+  const parentNode = tr.parentNode
   return (
-    parentNode.nodeName === 'THEAD' ||
+    parentNode?.nodeName === 'THEAD' ||
     (
-      (parentNode.nodeName === 'TABLE' || isFirstTbody(parentNode)) && (
+      (parentNode?.nodeName === 'TABLE' || isFirstTbody(parentNode as HTMLElement)) && (
         tr.previousSibling === null ||
         every.call(tr.childNodes, function (n) { return n.nodeName === 'TH' })
       )
@@ -73,30 +75,30 @@ function isHeadingRow (tr) {
   )
 }
 
-function isFirstTbody (element) {
-  var previousSibling = element.previousSibling
+function isFirstTbody (element: HTMLElement) {
+  const previousSibling = element?.previousSibling
   return (
-    element.nodeName === 'TBODY' && (
+    element?.nodeName === 'TBODY' && (
       !previousSibling ||
       (
         previousSibling.nodeName === 'THEAD' &&
-        /^\s*$/i.test(previousSibling.textContent)
+        /^\s*$/i.test(previousSibling?.textContent || '')
       )
     )
   )
 }
 
-function cell (content, node) {
-  var index = indexOf.call(node.parentNode.childNodes, node)
-  var prefix = ' '
+function cell (content: string, node: Node) {
+  const index = indexOf.call(node.parentNode?.childNodes, node)
+  let prefix = ' '
   if (index === 0) prefix = '| '
   return prefix + content.trim () + ' |'
 }
 
-export default function tables (turndownService) {
+export default function tables (turndownService: TurndownService) {
   // Better to convert malformed tables too, more convenient
   // turndownService.keep(function (node) {
   //   return node.nodeName === 'TABLE' && !isHeadingRow(node.rows[0])
   // })
-  for (var key in rules) turndownService.addRule(key, rules[key])
+  for (const key in rules) turndownService.addRule(key, rules[key])
 }
